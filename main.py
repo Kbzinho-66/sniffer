@@ -28,6 +28,7 @@ def main():
                     file.write(fmt)
                     file.write("\n")
 
+    # TODO(Isso aqui não funciona direito pro Windows)
     except KeyboardInterrupt:
         print('\nOutput was saved to result.txt')
         s.close()

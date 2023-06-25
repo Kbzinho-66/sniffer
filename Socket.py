@@ -1,7 +1,17 @@
-import platform
-import struct
+from platform import system
 import socket
-import sys
+
+if system() == 'Windows':
+    from scapy.all import sniff
+
+    WINDOWS = True
+    LINUX = False
+elif system() == 'Linux':
+    import struct
+    import sys
+
+    WINDOWS = False
+    LINUX = True
 
 
 def _get_constants(prefix):
@@ -20,28 +30,32 @@ def _get_mac_address(bytes_string):
 
 class Socket:
     def __init__(self):
-        if platform.system() == 'Linux':
+        if LINUX:
             try:
                 self.s = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.ntohs(3))
             except socket.error:
                 print('Could not create socket, try running as super user.')
                 sys.exit(1)
-        elif platform.system() == 'Windows':
-            # TODO(Implementar o socket pra Windows)
-            pass
 
         self._protocols = _get_constants('IPPROTO_')
 
+    def _protocol_name(self, protocol):
+        try:
+            name = self._protocols[protocol].split('_')[1] + " Protocol"
+        except KeyError:
+            name = 'None Specified'
+
+        return name
+
     def close(self):
-        self.s.close()
+        if LINUX:
+            self.s.close()
 
     def capture(self):
-        __IPV4__ = 8
-        __ARP__ = 1544
-        __IPV6__ = 56710
+        if LINUX:
+            __IPV4__ = 8
+            __IPV6__ = 56710
 
-        # Não sei se precisa dessa divisão aqui, mas por enquanto vou fazer assim
-        if platform.system() == 'Linux':
             # Capturar até 2^16 Bytes, o tamanho máximo de um pacote UDP
             raw, _ = self.s.recvfrom(65535)
             dest_mac, src_mac, ethernet_proto = struct.unpack('! 6s 6s H', raw[:14])
@@ -56,11 +70,7 @@ class Socket:
                 version = (version_header_len >> 4)
                 header_len = (version_header_len & 15) * 4
                 ttl, protocol, src, target = struct.unpack('! 8x B B 2x 4s 4s', data[:20])
-
-                try:
-                    protocol = self._protocols[protocol].split('_')[1] + " Protocol"
-                except KeyError:
-                    protocol = 'None Specified'
+                protocol = self._protocol_name(protocol)
 
                 src = '.'.join(map(str, src))
                 target = '.'.join(map(str, target))
@@ -69,11 +79,7 @@ class Socket:
                 version = (version_header_len & 0xf0) >> 4
                 header_len = version_header_len & 0x0f
                 ttl, protocol, src, target = struct.unpack('! 8x B B 2x 4s 4s', data[:20])
-
-                try:
-                    protocol = self._protocols[protocol].split('_')[1] + " Protocol"
-                except KeyError:
-                    protocol = 'None Specified'
+                protocol = self._protocol_name(protocol)
 
                 numbers = list(map(int, src))
                 src = '2002:{:02x}{:02x}:{:02x}{:02x}::'.format(*numbers)
@@ -85,3 +91,38 @@ class Socket:
                 return None
 
             return (dest_mac, src_mac, ethernet_proto), (version, header_len, ttl, protocol, src, target)
+
+        elif WINDOWS:
+            __IPV4__ = 2048
+            __IPV6__ = 34525
+
+            p = sniff(count=1)[0]
+
+            if p.type == __IPV4__ or p.type == __IPV6__:
+                # Extrai as informações comuns aos dois
+                dest_mac = p.dst
+                src_mac = p.src
+                ethernet_proto = p.type
+                data = p.payload
+                version = data.version
+                src = data.src
+                target = data.dst
+
+                # Extrair as informações específicas a cada pacote
+                if p.type == __IPV4__:
+                    header_len = int(data.ihl * 32 / 8)
+                    ttl = data.ttl
+                    protocol = self._protocol_name(data.proto)
+
+                else:
+                    header_len = 40
+                    ttl = data.hlim
+                    protocol = self._protocol_name(data.nh)
+
+                return (dest_mac, src_mac, ethernet_proto), (version, header_len, ttl, protocol, src, target)
+
+            else:
+                return None
+
+        else:
+            return None
