@@ -6,6 +6,7 @@ if system() == 'Windows':
 
     WINDOWS = True
     LINUX = False
+
 elif system() == 'Linux':
     import struct
     import sys
@@ -65,12 +66,14 @@ class Socket:
             src_mac = _get_mac_address(src_mac)
             ethernet_proto = socket.htons(ethernet_proto)
 
+            # A forma de extrair as informações é a mesma
             version_header_len = data[0]
+            ttl, protocol, src, target = struct.unpack('! 8x B B 2x 4s 4s', data[:20])
+            protocol = self._protocol_name(protocol)
+
             if ethernet_proto == __IPV4__:
                 version = (version_header_len >> 4)
                 header_len = (version_header_len & 15) * 4
-                ttl, protocol, src, target = struct.unpack('! 8x B B 2x 4s 4s', data[:20])
-                protocol = self._protocol_name(protocol)
 
                 src = '.'.join(map(str, src))
                 target = '.'.join(map(str, target))
@@ -78,8 +81,6 @@ class Socket:
             elif ethernet_proto == __IPV6__:
                 version = (version_header_len & 0xf0) >> 4
                 header_len = version_header_len & 0x0f
-                ttl, protocol, src, target = struct.unpack('! 8x B B 2x 4s 4s', data[:20])
-                protocol = self._protocol_name(protocol)
 
                 numbers = list(map(int, src))
                 src = '2002:{:02x}{:02x}:{:02x}{:02x}::'.format(*numbers)
@@ -96,20 +97,20 @@ class Socket:
             __IPV4__ = 2048
             __IPV6__ = 34525
 
-            p = sniff(count=1)[0]
+            frame = sniff(count=1)[0]
 
-            if p.type == __IPV4__ or p.type == __IPV6__:
+            if frame.type == __IPV4__ or frame.type == __IPV6__:
                 # Extrai as informações comuns aos dois
-                dest_mac = p.dst
-                src_mac = p.src
-                ethernet_proto = p.type
-                data = p.payload
+                dest_mac = frame.dst
+                src_mac = frame.src
+                ethernet_proto = frame.type
+                data = frame.payload
                 version = data.version
                 src = data.src
                 target = data.dst
 
                 # Extrair as informações específicas a cada pacote
-                if p.type == __IPV4__:
+                if frame.type == __IPV4__:
                     header_len = int(data.ihl * 32 / 8)
                     ttl = data.ttl
                     protocol = self._protocol_name(data.proto)
